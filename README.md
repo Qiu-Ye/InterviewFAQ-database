@@ -11,7 +11,7 @@
         -   [配置参数与调优](#配置参数与调优)
         -   [锁](#锁)
         -   [备份](#备份)
-        -   [常用的SQL语句](#常用的SQL语句)
+        -   [常用的SQL语句](#常用的sql语句)
         -   [Memcached](#memcached)
         -   [Redis](#redis)
 
@@ -251,7 +251,16 @@ InterviewFAQ-database
 ### 读写分离
 
 -   MySQL Proxy
--   Mycat
+-   MyCat
+    -   MyCat基于Cobar，MySQL通讯协议，代理服务器，无状态，容易部署，负载均衡。
+    -   原理：应用服务器传SQL语句，路由解析，转发到不同的后台数据库，结果汇总，返回MyCat把逻辑数据库和数据表对应到物理真实的数据库、数据表，遮蔽了物理差异性。
+    -   MyCat工作流程：
+        - 应用服务器向MyCat发送SQL语句select * from user where id in(30, 31, 32)。
+        - MyCat前端通信模块与应用服务器通信，交给SQL解析模块。
+        - SQL解析模块解析完交给SQL路由模块。
+        - SQL路由模块，id取模，余数为0：db1，余数为1：db2……
+        - 把SQL拆解为select * from user where id in 30……交给SQL执行模块，对应db1 db2 db3。
+        - SQL执行模块通过后端，分别在db1 db2 db3执行语句，返回结构到数据集合合并模块，然后返回给应用服务器。
 
 ### 配置参数与调优
 
@@ -309,15 +318,6 @@ InterviewFAQ-database
   - 读写分离
     - 把读和写拆开，对应主从服务器，主服务器写操作、从服务器是读操作。
   - 分库
-    - MyCat基于Cobar，MySQL通讯协议，代理服务器，无状态，容易部署，负载均衡。
-    - 原理：应用服务器传SQL语句，路由解析，转发到不同的后台数据库，结果汇总，返回MyCat把逻辑数据库和数据表对应到物理真实的数据库、数据表，遮蔽了物理差异性。
-    - MyCat工作流程：
-      - 应用服务器向MyCat发送SQL语句select * from user where id in(30, 31, 32)。
-      - MyCat前端通信模块与应用服务器通信，交给SQL解析模块。
-      - SQL解析模块解析完交给SQL路由模块。
-      - SQL路由模块，id取模，余数为0：db1，余数为1：db2……
-      - 把SQL拆解为select * from user where id in 30……交给SQL执行模块，对应db1 db2 db3。
-      - SQL执行模块通过后端，分别在db1 db2 db3执行语句，返回结构到数据集合合并模块，然后返回给应用服务器。
 - SQL慢查询分析、调参数
   - 慢查询：指执行超过一定时间的SQL查询语句记录到慢查询日志，方便开发人员查看日志
     - long_qeury_time：定义慢查询时间
