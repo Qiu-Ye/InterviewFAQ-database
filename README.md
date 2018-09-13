@@ -365,29 +365,148 @@ InterviewFAQ-database
 
 ### 常用的SQL语句
 
-- describe tablesname
-- distinct
-- order by xxx desc
-- creat user identified by "123"
-- gread/revoke xxx on xxx.* to xxx
-- set password for xxx=password('123')
-- select xxx from xxx
-  - where
-    - between xxx and xxx
-    - is Null
-    - and  or
-    - like
-      - % --> *
-      - _ --> .
-    - regexp 'xxx|xxx'
-  - group by
-  - having
-  - order by limit
-- inner join xxx on
-- insert into xxx (xxx, xxx, ...)
-- update xxx set xxx where
-- delete xxx from xxx where
-- creat table xxx (auto_increment/xxx)
+#### 数据库
+
+- CREATE/DROP DATABASE database_name;
+- SHOW DATABASES;
+- SHOW ENGINES \G
+- SHOW VARIABLES LIKE 'have%';
+- SHOW VARIABLES LIKE 'storage_engine%';
+
+#### 表
+
+- CREATE TABLE table_name{ 属性名 数据类型 [约束]，...}
+- 完整性约束
+  - NOT NULL
+  - DEFAULT
+  - UNIQUE KEY (UK)
+  - PRIMARY KEY (PK)
+    - 多字段主键
+      - CONSTRAINT 约束名 PRIMARY KEY(属性名， 属性名，...)
+  - AUTO_INCREMENT
+  - FOREIGN KEY (FK)
+    - CONSTRAINT 外键约束名 FOREIGN KEY (属性名1) REFERENCES 父表名 (属性名2)
+    - 设置FK约束的字段必须依赖于数据库中已经存在的父表的主键，同时外键可以为NULL。
+- DESCRIBE table_name;
+- SHOW CREATE TABLE table_name;
+- DROP TABLE table_name;
+- ALTER TABLE old_table_name RENAME [TO] new_table_name;
+- DESC table_name;
+- ALTER TABLE table_name ADD 属性名 属性类型；
+- ALTER TABLE table_name ADD 属性名 属性类型 FIRST;
+- ALTER TABLE table_name ADD 属性名 属性类型 AFTER 属性名；
+- ALTER TABLE table_name DROP 属性名；
+- ALTER TABLE table_name MODIFY 属性名 数据类型；
+- ALTER TABLE table_name CHANGE 旧属性名 新属性名 旧数据类型或新数据类型；
+- ALTER TABLE table_name MODIFY 属性名1 数据类型 AFTER 属性名2；
+- ALTER TABLE table_name MODIFY 属性名1 数据类型 FIRST；
+
+#### 索引
+
+- INDEX|KEY [索引名] (属性名1 \[(长度)] [ASC|DESC] )
+- CREATE INDEX index_name ON table_name (属性名  \[(长度)] [ASC|DESC] )；
+- ALTER TABLE table_name ADD INDEX|KEY [索引名] (属性名1 \[(长度)] [ASC|DESC] );
+- DROP INDEX index_name ON table_name;
+- 索引类型
+  - 普通索引：INDEX
+  - 唯一索引：UNIQUE INDEX
+  - 全文索引：FULLTEXT INDEX
+  - 单列索引
+  - 多列索引：(属性名1，属性名2);
+  - 空间索引
+
+#### 视图
+
+- 视图的建立和删除不影响基本表
+- 对视图内容的更新（添加、删除和修改）直接影响基本表
+- 当视图来自多个基本表时，不允许添加和删除数据
+- CREATE OR REPLACE VIEW VIEW_NAME AS 查询语句；
+- DROP VIEW view_name;
+- ALTER VIEW view_name AS 查询语句；
+- INSERT INTO view_name (属性名1，属性名2，属性名...) VALUES (值1， 值2 ，值...);
+- DELETE FROM view_name WHERE 属性名='data';
+- UPDATE view_name set 属性名='data' WHERE 属性名=‘data’；
+
+#### 触发器
+
+- 能够加强数据库表中数据的完整性约束和业务规则等
+- CREATE TRIGGER trigger_name BEFORE|AFTER trigger_EVENT ON table_name FOR EACH ROW trigger_ATMT;
+  - CREATE TRIGGER trigger_diarytime BEFORE INSERT ON table_dept FOR EACH ROW INSERT INTO tble_diary VALUES(NULL, 'table_dept', now());
+- DELIMITER $$
+- CREATE TRIGGER trigger_name 
+  - BEFORE|AFTER trigger_event 
+    - ON table_name FOR EACH ROW
+      - BEGIN 
+      - trigger_ATMT;
+      - END
+        - $$
+- DELIMITER;
+- SHOW TRIGGERS \G
+- SELECT * FROM triggers WHERE TRIGGER_NAME='trigger_name' \G
+- DROP TRIGGER trigger_name;
+
+#### 数据操作语句
+
+- INSERT INTO table_name (field1, field2, field3,...) VALUES (value1, value2, value3,...);
+- INSERT INTO table_name VALUES (value1, value2, value3,...); 插入完成数据记录可以省略属性名
+- UPDATE table_name SET field1=value1, field2=value2, WHERE CONDITION;
+- UPDATE table_name SET field1=value1, field2=value2;插入列的所有记录可以省略EHERE语句
+- DELETE FROM tabel_name WHERE CONDITION;
+- SELECT DISTINCT field1 field2 FROM table_name;
+- SELECT CONCAT(field, ‘文字信息’, field) FROM table_name;
+- WHERE ... 
+  - NOT BETWEEN ... AND ...;
+  - IS NULL
+  - IN
+  - LIKE 'AFADFEFA'
+    - -
+    - %
+- ORDER BY field \[ASC|DESC][,field2 [ASC|DESC],]
+- LIMIT OFFSET_START,ROW_COUNT;
+- GROUP BY field;
+- HAVING CONDITION;
+- function(field)
+  - COUNT()
+  - AVR()
+  - SUM()
+  - MAX()
+  - MIN()
+
+#### 多表查询
+
+- ```
+  select a.a, a.b, a.c, b.c, b.d, b.f from a LEFT OUT JOIN b ON a.a = b.c
+  select * from a left inner join b on a.a=b.b right inner join c on a.a=c.c inner join d on a.a=d.d where .....
+  ```
+
+#### 存储过程与函数
+
+#### 事务
+
+- REDO日志
+- UNDO日志
+- 事务控制语句
+  - BEGIN
+  - COMMIT
+  - SET AUTOCOMMIT
+  - ROLLBACK
+- 事务隔离级别
+  - read-uncommitted：读取未提交内容（脏读）
+  - read-committed：读取提交内容（不可重复读）
+  - repeatable-read：可重读（幻读）
+    - 多版本并发控制
+      - InnoDB通过为每个数据行增加两个隐含值 的方式来实现。
+      - 这两个隐含值记录了行的创建时间，以及过期时间。
+      - 每个存储事件发生时的系统版本号。
+      - 每一次开始一个新事务时版本号会自动加1，每个事务都会保存开始时的版本号，每个查询根据事务的版本号来查询结果。
+  - Serializable：可串行化
+- InnoDB锁机制
+
+#### 权限与用户
+
+- CREATE USER username IDENTIFIED BY 'password'；
+- GRANT priv_type ON databasename.tablename TO username@IP IDENTIFIED BY 'password';
+- DROP USER username； 
 
 ### Memcached
 
