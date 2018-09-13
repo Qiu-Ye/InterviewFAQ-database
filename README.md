@@ -525,6 +525,7 @@ InterviewFAQ-database
 -   应用首先从Memcached中获得数据，获取不到再从数据库中获得并保存在Memcached中。
 -   好的应用95%的数据从Memcache中获得，3%的数据来自MySQL的query
     cache中获得，剩下的2%采取查表。Cache is King
+-   推荐大家阅读Kristina Chodorow写的[《MongoDB权威指南》](http://www.ituring.com.cn/book/1172)。 
 
 ### Redis
 
@@ -553,3 +554,17 @@ InterviewFAQ-database
     -   是数据库容量受到物理内存的限制,不能用作海量数据的高性能读写,因此Redis适合的场景主要局限在较小数据量的高性能操作和运算上。
 
     -   Redis较难支持在线扩容，在集群容量达到上限时在线扩容会变得很复杂。为避免这一问题，运维人员在系统上线时必须确保有足够的空间，这对资源造成了很大的浪费。
+
+- Redis的数据类型：
+  - 字符串、列表（lists）、集合（sets）、有序集合（sorts sets）、哈希表（hashs）
+- Redis和memcache相比的独特之处：
+  - redis可以用来做存储（storge）、而memcache是来做缓存（cache）。这个特点主要是因为其有“持久化”功能
+  - 存储的数据有“结构”，对于memcache来说，存储的数据，只有一种类型——“字符串”，而redis则可以存储字符串、链表、集合、有序集合、哈序结构
+- 持久化的两种方式：
+  - Redis将数据存储于内存中，或被配置为使用虚拟内存。
+  - 实现数据持久化的两种方式：
+    - （1）使用截图的方式，将内存中的数据不断写入磁盘（性能高，但可能会引起一定程度的数据丢失）
+    - （2）使用类似mysql的方式，记录每次更新的日志
+- Redis的主从同步：对提高读取性能非常有益
+- Redis服务端的默认端口是6379
+- [《Redis开发与运维》](https://item.jd.com/12121730.html)是一本不错的入门读物，而[《Redis实战》](https://item.jd.com/11791607.html)是不错的进阶读物。 
