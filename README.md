@@ -5,11 +5,13 @@
         -   [多版本并发控制（MVCC）](#多版本并发控制mvcc)
         -   [存储引擎](#存储引擎)
         -   [优化步骤](#优化步骤)
-        -   [主从复制原理](#主从复制原理)
-        -   [MySQL高可用架构MHA](#mysql高可用架构mha)
+        -   [主从复制](#主从复制)
+        -   [高可用架构（MHA）](#高可用架构mha)
         -   [读写分离](#读写分离)
-        -   [配置文件](#配置文件)
-        -   [备份（热备/冷备）](#备份热备冷备)
+        -   [配置参数与调优](#配置参数与调优)
+        -   [锁](#锁)
+        -   [备份](#备份)
+        -   [常用的SQL语句](#常用的SQL语句)
         -   [Memcached](#memcached)
         -   [Redis](#redis)
 
@@ -105,14 +107,96 @@ InterviewFAQ-database
 -   [MySQL存储引擎－－MyISAM与InnoDB区别](https://segmentfault.com/a/1190000008227211)
 -   InnoDB引擎
     -   关键特性
-        -   插入缓冲：提高非聚集索引插入的性能
-            -   对于非聚集索引的插入或更新操作，不是每一次直接插入到索引页中，而是先判断插入的非聚集索引页是否在缓冲池中，若在，则直接插入，若不在，则先放入到一个Insert
-                Buffer对象中，然后再以一定的频率和情况进行Insert
-                Buffer和辅助索引页子节点的合并操作，这时通常能将多个插入操作合并到一个操作中。
-        -   两次写
-        -   自适应哈希索引
+        -   支持事务，行锁设计、支持外键，并支持类似于Oracle的一致性非锁定读，即默认操作不会产生锁。
+        -   通过使用所版本并发控制（MVCC）来获得高并发性，并且实现了SQL标准的4种隔离级别，默认为REPEATABLE级别。同时使用next-key locking的策略来避免幻读现象的产生。
+        -   插入缓冲：提高非聚集索引插入的性能，应用于非唯一辅助索引的插入操作
+            -   对于非聚集索引的插入或更新操作，不是每一次直接插入到索引页中，而是先判断插入的非聚集索引页是否在缓冲池中，若在，则直接插入，若不在，则先放入到一个Insert Buffer对象中，然后再以一定的频率和情况进行Insert Buffer和辅助索引页子节点的合并操作，这时通常能将多个插入操作合并到一个操作中。
+        -   两次写：可靠性的提升，在应用重做日志前，用户需要一个页的副本，当写入失效发生时，先通过页的副本还原该页，再进行重做。
+            -   组成部分
+                -   内存中的doublewrite buffer，大小为2MB
+                -   物理磁盘上共享表空间中连续的128个页，大小为2MB
+            -   实现步骤
+                -   在对缓冲池的脏页进行刷新时，并不直接写磁盘，而是通过memcpy函数将脏页复制到内存中的doublewrite buffer；
+                -   通过doublewrite buffer分两次，每次1MB顺序地写入共享表空间的物理磁盘上，然后马上调用fsync函数，同步磁盘，避免缓冲写带来的问题。（doublewrite页是连续的，因此这个过程是顺序写的，开销不是很大）
+                -   完成doublewrite页的写入后，再将doublewrite buffer中的页写入各个表空间文件中。（此时的写入是离散的）
+        -   自适应哈希索引：
+            -   InnoDB存储引擎会监控对表上各索引页的查询，如果观察到建立哈希索引可以带来速度提升，则建立哈希索引。
+            -   通过缓冲池的B+树页构造而来，因此建立的速度很快。
+            -   存储引擎会自动根据访问的频率和模式来自动地为某些热点页建立哈希索引。
+            -   哈希索引只能用来搜索等值的查询，范围查找不适用
+        -   预读
+        -   聚集
         -   异步IO
         -   刷新邻接页
+            -   当刷新一个脏页时，存储引擎会检测该页所以在的区的所有页，如果是脏页，那么一起进行刷新。
+    -   体系架构
+        -   后台线程
+            -   功能
+                -   刷新内存池中的数据，保证缓冲池中的内存缓存的是最近的数据
+                -   将已经修改的数据文件刷新到磁盘文件
+                -   在数据库发生异常的情况下InnoDB能恢复到正常状态
+            -   类型
+                -   Master Thread：主要负责将缓冲池中的数据异步刷新到磁盘，具有最高的线程优先级
+                    -   脏页的刷新（1.2版本之前）
+                    -   合并插入缓冲
+                    -   UNDO页的回收（1.1版本之前）
+                -   IO Thread：主要负责异步IO请求的回调处理
+                    -   insert buffer thread
+                    -   log thread
+                    -   read thread
+                    -   write thread
+                -   Purge Thread：回收已经使用并分配的undo页
+                -   Page Cleaner Thread：脏页的刷新，减轻原Master Thread的工作及对于用户查询线程的阻塞。
+        -   内存池
+            -   功能
+                -   维护所有进程/线程需要访问的多个内部数据结构
+                -   缓存磁盘上的数据
+                -   重做日志缓冲
+            -   组成
+                -   缓冲池
+                    -   索引页
+                    -   数据页
+                    -   undo页
+                    -   插入缓冲
+                    -   自适应哈希索引
+                    -   锁信息
+                    -   数据字典信息
+                -   重做日志缓冲
+                    -   会将重做日志缓冲刷新到日志文件
+                        -   一般情况下Master Thread每一秒钟刷新一次
+                        -   每个事务提交时会刷新
+                        -   重做日志缓冲池剩余空间小于1/2时刷新
+                -   额外的内存池
+                    -   通过内存堆的方式进行内存管理
+                    -   在对一些数据结构本身的内存进行分配时，需要从额外的内存池中进行申请，当该区域的内存不够时，会冲缓冲池中进行申请。
+            -   LRU算法（最近最少使用算法）
+                -   midpoint：在LRU列表长度的5/8处
+                -   LRU列表：管理缓冲池中页的可用性
+            -   checkpoint机制
+                -   Flush列表：管理将页刷新回磁盘
+                -   作用
+                    -   缩短数据库的恢复时间：数据库只需要对checkpoint后的重做日志进行恢复
+                    -   缓冲池不够用时，将脏页刷新到磁盘
+                    -   重做日志不可用时，刷新脏页
+                -   关键点
+                    -   每次刷新多少页
+                    -   每次从哪里取脏页
+                    -   什么时间触发Checkpoint
+                -   类型
+                    -   Master Thread Checkpoint
+                    -   FLUSH_LRU_LIST Checkpoint：LRU列表空闲页不足时
+                    -   Async/Sync Flush Checkpoint：重做日志文件不可用时，保证重做日志循环使用的可用性
+                    -   Dirty Page too much Checkpoint：缓冲池中的脏页数量达到阈值时
+        -   文件
+            -   参数文件
+            -   日志文件
+            -   socket文件
+            -   pid文件
+            -   MySQL表结构文件
+            -   存储引擎文件
+    -   MyISAM引擎
+        -   不支持事务
+        -   缓冲池只缓冲索引文件，而不缓存数据文件
 -   该如何选用两个存储引擎?
     -   因为MyISAM相对简单所以在效率上要优于InnoDB.如果系统读多，写少。对原子性要求低。那么MyISAM最好的选择。且MyISAM恢复速度快。可直接用备份覆盖恢复。
     -   如果系统读少，写多的时候，尤其是并发写入高的时候，InnoDB就是首选了。
@@ -122,13 +206,41 @@ InterviewFAQ-database
 -   通过数据库分片来解决数据库写扩展的问题，避免单点故障以及写操作成为瓶颈
 -   利用主从复制解决读的问题，通过多个从服务器来应对读操作
 
-### 主从复制原理
+### 主从复制
 
--   主服务器把数据更新记录到二进制日志中
--   从服务器把主服务器的二进制日志复制到自己的中继日志中，由从服务器的IO线程负责
--   从服务器执行中继日志，把其更新应用在自己的数据库上，由从服务器的SQL线程负责
++ 主从复制的原理：
+  + 主服务器把数据更新记录到二进制日志(binary log)中；
+  + 从服务器把主服务器的二进制日志复制到自己的中继日志(relay log)中（由从服务器的IO线程负责）；
+  + 从服务器重做中继日志中的事件，把改变应用在自己的数据库上（由从服务器的SQL线程负责）。
++ 主从复制过程：
+  - 从数据库，执行start slave开启主从复制。
+  - 从数据库IO线程会通过主数据库授权的用户请求连接主数据库，并请求主数据库的binlog日志的指定位置，change master命令指定日志文件位置。
+  - 主数据库收到IO请求，负责复制的IO线程跟据请求读取的指定binlog文件返回给从数据库的IO线程，返回的信息除了日志文件，还有本次返回的日志内容在binlog文件名称和位置。
+  - 从数据库获取的内容和位置（binlog），写入到（从数据库）relaylog中继日志的最末端，并将新的binlog文件名和位置记录到master-info文件，方便下次读取主数据库的binlog日志，指定位置，方便定位。
+  - 从数据库SQL线程，实时检测本地relaylog新增内容，解析为SQL语句，执行。
++ 如何判断MySQL主从是否同步？
+  - 获取到MySQL的主从状态信息
+    - SHOW SLAVE STATUS\G
+  - 查看以下三个参数的值
+    - Slave_IO_Running    I/O线程是否被启动并成功地连接到主服务器上。（状态信息为Yes No）
+    - Slave_SQL_Running    SQL线程是否被启动（状态信息为Yes No）
+    - Seconds_Behind_Master    测量SQL线程和I/O线程的时间差（即延迟，单位为秒）
+    - 对于简单的监测SQL是否同步，只需要第一和第二个参数都为Yes的情况下，并且延迟小于一定数值的时候，我们就可以认定mysql主从是同步的
++ MySQL如何减少主从复制延迟？
+  - 主服务器方面：
+    - 主库读写压力大，导致复制延迟 --> 架构的前端要加buffer及缓存层
+    - 主从复制单线程，如果主库写并发太大，来不及传送到从库，就会导致延迟 --> 更高版本的mysql可以支持多线程复制
+    - 慢SQL语句过多 --> 在架构上做优化，尽量让主库的DDL快速执行
+  - 从服务器方面：
+    - 从库硬件比主库差，导致复制延迟 --> 升级从服务器的硬件设备
+    - 从服务器负载大 --> 使用多台slave来分摊读请求，再从这些slave中取一台专用的服务器，只作为备份用，不进行其他任何操作
+    - 牺牲写从服务器的数据安全，将sync_binlog设置为0或者关闭binlog，将innodb_flushlog设置为0来提高sql的执行效率。
+    - 两个可以减少延迟的参数:
+      - slave-net-timeout=seconds 单位为秒 默认设置为 3600秒 #参数含义：当slave从主数据库读取log数据失败后，等待多久重新建立连接并获取数据
+      - master-connect-retry=seconds 单位为秒 默认设置为 60秒 #参数含义：当重新建立主从连接时，如果连接建立失败，间隔多久后重试。
+  - 网络延迟 --> 改变网络架构，或使用更好的网络服务
 
-### MySQL高可用架构MHA
+### 高可用架构（MHA）
 
 -   管理节点：定时探测集群中的master节点，当master出现故障时，它可以自动将最新数据的slave提升为新的master，然后将所有其他的slave重新指向新的master。
 -   数据节点：
@@ -141,9 +253,94 @@ InterviewFAQ-database
 -   MySQL Proxy
 -   Mycat
 
-### 配置文件
+### 配置参数与调优
 
-### 备份（热备/冷备）
+- 连接数 、会话数和线程数
+  - max_connections 
+  - max_connect_errors
+    - 日志中会出现类似信息：blocked because of many connection errors 
+    - 执行`mysqladmin flush-hosts`或者重启 MySQL服务，将错误计数器清零
+  - thread_concurrency 
+    - CPU核数的2倍 
+  - max_allowed_packet 
+  - key_buffer_size
+    - 根据增大`Key_reads / Uptime` 来优化这个参数 
+    - `mysqladmin ext -ri10 | grep Key_reads`
+  - thread_cache_size
+    - 此参数用来缓存空闲的线程，以至不被销毁 
+    - `SHOW STATUS WHERE Variable_name LIKE '%Thread%';`
+    - 建议设置成与threads_connected一样 。 
+  - sort_buffer_size 
+  - join_buffer_size 
+  - query_cache_size 
+  - read_buffer_size 
+  - read_rndbuffer_size 
+  - myisam_sortbuffer_size 
+  - innodb_buffer_pool_size 
+- 日志和事务
+  - innodb_log_file_size 
+  - innodb_log_buffer_size 
+  - innodb_flush_log_at_trx_commit 
+  - innodb_lock_wait_timeout 
+- 软件优化
+  - 选择合适的引擎
+    - MyISAM 索引顺序访问方法 
+    - InnoDB 事务型存储引擎 
+  - 正确使用索引
+    - 给合适的列表建立索引，给where子句，连接子句建立索引
+  - 避免使用SELECT
+    - 返回结果过多，降低查询的速度，会增大服务器返回给APP端的数据传输量
+  - 字段尽量设置为NOT NULL
+- 硬件优化
+  - Linux内核用内存开缓存存放数据
+    - 写文件：文件延迟写入机制，先把文件存放到缓存，达到一定程度写进硬盘。
+    - 读文件：同时读文件到缓存，下次需要相同文件直接从缓存中取，而不是从硬盘取。
+  - 增加应用缓存
+    - 本地缓存：数据放到服务器内存的文件中。
+    - 分布式缓存：Redis, Mencache 读写性能非常高，QPS（每秒查询请求数）每秒达到1W以上；数据持久化用Redis，不持久化两者都可以。
+  - 用SSD代替机械硬盘
+    - 日志和数据分开存储，日志顺序读写 – 机械硬盘，数据随机读写 – SSD
+- 架构优化
+  - 分表
+    - 水平拆分：数据分成多个表拆分后的每张表的表头相同。
+    - 垂直拆分：字段分成多个表。
+    - 插入数据、更新数据、删除数据、查询数据时：MyISAM MERGE存储引擎，多个表合成一个表，InnoDB用alter table，变成MyISAM存储引擎，然后MEGRE。
+    - 面试题：MERGE存储引擎将N个表合并，数据库中如何存储？答： 真实存储为N个表，表更大的话就需要分库了。
+  - 读写分离
+    - 把读和写拆开，对应主从服务器，主服务器写操作、从服务器是读操作。
+  - 分库
+    - MyCat基于Cobar，MySQL通讯协议，代理服务器，无状态，容易部署，负载均衡。
+    - 原理：应用服务器传SQL语句，路由解析，转发到不同的后台数据库，结果汇总，返回MyCat把逻辑数据库和数据表对应到物理真实的数据库、数据表，遮蔽了物理差异性。
+    - MyCat工作流程：
+      - 应用服务器向MyCat发送SQL语句select * from user where id in(30, 31, 32)。
+      - MyCat前端通信模块与应用服务器通信，交给SQL解析模块。
+      - SQL解析模块解析完交给SQL路由模块。
+      - SQL路由模块，id取模，余数为0：db1，余数为1：db2……
+      - 把SQL拆解为select * from user where id in 30……交给SQL执行模块，对应db1 db2 db3。
+      - SQL执行模块通过后端，分别在db1 db2 db3执行语句，返回结构到数据集合合并模块，然后返回给应用服务器。
+- SQL慢查询分析、调参数
+  - 慢查询：指执行超过一定时间的SQL查询语句记录到慢查询日志，方便开发人员查看日志
+    - long_qeury_time：定义慢查询时间
+    - slow_query_log：设置慢查询开关
+    - slow_query_log_file：设置慢查询日志文件路径
+    - /etc/sysconfig/network-scripts/ifcfg-eth0
+    - IPADDR
+    - GATEWAY
+    - BOOTPROTO
+    - /etc/sysconfig/network
+
+### 锁
+
++ MySQL的innodb如何定位锁问题?
+  + 通过查询information_schema数据库中innodb_locks表了解锁等待情况。
+    + SELECT * FROM  Innodb_trx  \G;  # 当前运行的所有事务
+    + SELECT * FROM  Innodb_locks  \G; # 当前出现的锁
+    + SELECT * FROM Innodb_locks_waits \G ; # 锁等待的对应关系
+  + 通过设置InnoDB Monitors观察锁冲突情况。
+    + CREATE TABLE innidb_monitor(a INT) ENGINE=INNODB;
+    + SHOW ENGINE INNODB STATUS
+
+### 备份
 
 -   mysql表备份(mysqldump)
 -   表类型
@@ -165,6 +362,32 @@ InterviewFAQ-database
 -   备份时机
     -   选择应用负担小的时候
 -   恢复测试
+
+### 常用的SQL语句
+
+- describe tablesname
+- distinct
+- order by xxx desc
+- creat user identified by "123"
+- gread/revoke xxx on xxx.* to xxx
+- set password for xxx=password('123')
+- select xxx from xxx
+  - where
+    - between xxx and xxx
+    - is Null
+    - and  or
+    - like
+      - % --> *
+      - _ --> .
+    - regexp 'xxx|xxx'
+  - group by
+  - having
+  - order by limit
+- inner join xxx on
+- insert into xxx (xxx, xxx, ...)
+- update xxx set xxx where
+- delete xxx from xxx where
+- creat table xxx (auto_increment/xxx)
 
 ### Memcached
 
